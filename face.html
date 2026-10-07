@@ -1,0 +1,2241 @@
+ <!DOCTYPE html>
+ <html lang="ja">
+ <head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+ <title>表情と手の音声スイッチ</title>
+
+ <!-- MediaPipe Face Mesh -->
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+         crossorigin="anonymous"></script>
+
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+         crossorigin="anonymous"></script>
+
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"
+         crossorigin="anonymous"></script>
+
+ <style>
+
+ * {
+     box-sizing: border-box;
+ }
+
+ body {
+     margin: 0;
+     background: #f1f5f9;
+     color: #1e293b;
+     font-family:
+         "Noto Sans JP",
+         "Yu Gothic",
+         Meiryo,
+         sans-serif;
+ }
+
+ header {
+     background: #2563eb;
+     color: white;
+     padding: 18px 24px;
+     font-size: 25px;
+     font-weight: bold;
+ }
+
+ .container {
+     max-width: 1200px;
+     margin: auto;
+     padding: 20px;
+ }
+
+ .main {
+     display: grid;
+     grid-template-columns: 1.2fr 1fr;
+     gap: 20px;
+ }
+
+ .card {
+     background: white;
+     border-radius: 16px;
+     padding: 20px;
+     box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+ }
+
+ h2 {
+     margin-top: 0;
+     font-size: 21px;
+ }
+
+ .video-area {
+     background: #111827;
+     border-radius: 12px;
+     overflow: hidden;
+     position: relative;
+     aspect-ratio: 4 / 3;
+ }
+
+ #video {
+     display: none;
+ }
+
+ #canvas {
+     width: 100%;
+     height: 100%;
+     display: block;
+     transform: scaleX(-1);
+ }
+
+ .status {
+     margin-top: 12px;
+     padding: 13px;
+     border-radius: 10px;
+     background: #fef3c7;
+     color: #92400e;
+     font-weight: bold;
+ }
+
+ .status.ok {
+     background: #dcfce7;
+     color: #166534;
+ }
+
+ .buttons {
+     display: flex;
+     gap: 10px;
+     margin-top: 15px;
+     flex-wrap: wrap;
+ }
+
+ button {
+     border: none;
+     border-radius: 10px;
+     padding: 12px 20px;
+     font-size: 16px;
+     font-weight: bold;
+     cursor: pointer;
+ }
+
+ button:disabled {
+     opacity: 0.45;
+ }
+
+ .start {
+     background: #16a34a;
+     color: white;
+ }
+
+ .stop {
+     background: #dc2626;
+     color: white;
+ }
+
+ .test {
+     background: #64748b;
+     color: white;
+ }
+
+ .rule {
+     border: 1px solid #e2e8f0;
+     border-radius: 12px;
+     padding: 15px;
+     margin-bottom: 15px;
+ }
+
+ .rule-title {
+     font-size: 18px;
+     font-weight: bold;
+     margin-bottom: 10px;
+ }
+
+ .row {
+     display: grid;
+     grid-template-columns: 120px 1fr;
+     gap: 10px;
+     align-items: center;
+     margin: 10px 0;
+ }
+
+ input[type="text"],
+ select {
+     width: 100%;
+     padding: 10px;
+     border: 1px solid #cbd5e1;
+     border-radius: 8px;
+     font-size: 16px;
+ }
+
+ input[type="range"] {
+     width: 100%;
+ }
+
+ .value {
+     font-family: monospace;
+     text-align: right;
+ }
+
+ .metric {
+     display: grid;
+     grid-template-columns: 1fr 90px;
+     gap: 10px;
+     align-items: center;
+     margin: 10px 0;
+ }
+
+ .small {
+     font-size: 13px;
+     line-height: 1.6;
+     color: #64748b;
+ }
+
+ .log {
+     background: #0f172a;
+     color: #dbeafe;
+     padding: 12px;
+     border-radius: 10px;
+     height: 150px;
+     overflow-y: auto;
+     font-family: monospace;
+     font-size: 12px;
+ }
+
+ @media(max-width:850px) {
+
+     .main {
+         grid-template-columns: 1fr;
+     }
+
+     .row {
+         grid-template-columns: 1fr;
+     }
+
+ }
+
+ </style>
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+
+ <body>
+
+ <header>
+ 表情で音声スイッチ
+ </header>
+
+ <div class="container">
+
+ <div class="main">
+
+ <!-- ============================= -->
+ <!-- カメラ -->
+ <!-- ============================= -->
+
+ <div class="card">
+<h2>カメラ・顔ランドマーク</h2>
+
+ <div class="video-area">
+
+ <video id="video" playsinline></video>
+
+ <canvas id="canvas"></canvas>
+
+ </div>
+
+ <div id="status" class="status">
+ 「開始」を押してください
+ </div>
+
+ 
+<div class="row" style="margin-top:12px;">
+  <label>Webカメラ</label>
+  <select id="cameraSelect">
+    <option value="">カメラを選択</option>
+  </select>
+</div>
+
+<div class="buttons">
+
+ <button
+     id="startBtn"
+     class="start">
+ 開始
+ </button>
+
+ <button
+     id="stopBtn"
+     class="stop"
+     disabled>
+ 停止
+ </button>
+
+ <button
+     id="testBtn"
+     class="test">
+ 音声テスト
+ </button>
+
+ </div>
+
+ <p class="small">
+
+ MediaPipe Face Meshで顔のランドマークを検出します。\
+
+ 口・目・笑顔の判定は、468個のランドマークの
+ 位置関係から計算しています。
+
+ </p>
+
+ </div>
+
+
+ <!-- ============================= -->
+ <!-- 音声設定 -->
+ <!-- ============================= -->
+
+ <div class="card">
+
+ <h2>表情と音声の設定</h2>
+
+
+ <!-- 口 -->
+ <div class="rule">
+
+ <div class="rule-title">
+ 口を開ける
+ 
+<div class="setting-row">
+  <label>手が動いたら</label>
+  <label>読み上げる文章</label>
+  <input id="handText" type="text" value="はい">
+  <label>判定しきい値</label>
+  <input id="handThreshold" type="number" value="0.006" step="0.001" min="0">
+</div></div>
+
+ <div class="row">
+
+ <label>
+ 読み上げる文字
+ </label>
+
+ <input
+     id="mouthText"
+     type="text"
+     value="あー"
+ >
+
+ </div>
+
+ <div class="metric">
+
+ <label>
+ 判定しきい値
+ </label>
+
+ <input
+     id="mouthThreshold"
+     type="range"
+     min="0.05"
+     max="0.80"
+     step="0.01"
+     value="0.28"
+ >
+
+ <span
+     id="mouthThresholdValue"
+     class="value">
+ 0.28
+ </span>
+
+ </div>
+
+ </div>
+
+
+ <!-- 目 -->
+ <div class="rule">
+
+ <div class="rule-title">
+ 目を閉じる
+ </div>
+
+ <div class="row">
+
+ <label>
+ 読み上げる文字
+ </label>
+
+ <input
+     id="eyeText"
+     type="text"
+     value="はい"
+ >
+
+ </div>
+
+ <div class="metric">
+
+ <label>
+ 判定しきい値
+ </label>
+
+ <input
+     id="eyeThreshold"
+     type="range"
+     min="0.08"
+     max="0.45"
+     step="0.01"
+     value="0.20"
+ >
+
+ <span
+     id="eyeThresholdValue"
+     class="value">
+ 0.20
+ </span>
+
+ </div>
+
+ </div>
+
+
+ <!-- 笑顔 -->
+ <div class="rule">
+
+ <div class="rule-title">
+ 笑顔
+ </div>
+
+ <div class="row">
+
+ <label>
+ 読み上げる文字
+ </label>
+
+ <input
+     id="smileText"
+     type="text"
+     value="こんにちは"
+ >
+
+ </div>
+
+ <div class="metric">
+
+ <label>
+ 判定しきい値
+ </label>
+
+ <input
+     id="smileThreshold"
+     type="range"
+     min="1.0"
+     max="2.5"
+     step="0.01"
+     value="1.35"
+ >
+
+ <span
+     id="smileThresholdValue"
+     class="value">
+ 1.35
+ </span>
+
+ </div>
+
+ </div>
+
+
+ <!-- 手を握ったら -->
+ <div class="rule">
+
+ <div class="rule-title">
+ 手を握ったら
+ </div>
+
+ <div class="row">
+
+ <label>
+ 読み上げる文字
+ </label>
+
+ <input
+     id="fistText"
+     type="text"
+     value="はい"
+ >
+
+ </div>
+
+ <div class="metric">
+
+ <label>
+ 判定しきい値
+ </label>
+
+ <input
+     id="fistThreshold"
+     type="range"
+     min="0.00"
+     max="1.00"
+     step="0.05"
+     value="0.60"
+ >
+
+ <span
+     id="fistThresholdValue"
+     class="value">
+ 0.60
+ </span>
+
+ </div>
+
+ </div>
+
+
+ <!-- 手を広げたら -->
+ <div class="rule">
+
+ <div class="rule-title">
+ 手を広げたら
+ </div>
+
+ <div class="row">
+
+ <label>
+ 読み上げる文字
+ </label>
+
+ <input
+     id="openHandText"
+     type="text"
+     value="こんにちは"
+ >
+
+ </div>
+
+ <div class="metric">
+
+ <label>
+ 判定しきい値
+ </label>
+
+ <input
+     id="openHandThreshold"
+     type="range"
+     min="0.00"
+     max="1.00"
+     step="0.05"
+     value="0.60"
+ >
+
+ <span
+     id="openHandThresholdValue"
+     class="value">
+ 0.60
+ </span>
+
+ </div>
+
+ </div>
+
+
+ <!-- 手の判定値 -->
+ <div class="metric">
+
+ <label>
+ 手の判定値（開き具合）
+ </label>
+
+ <span
+     id="handValue"
+     class="value">
+ 0.00
+ </span>
+
+ </div>
+
+ <div class="metric">
+
+ <label>
+ 手の検知
+ </label>
+
+ <span
+     id="handMetric"
+     class="value">
+ 0
+ </span>
+
+ </div>
+
+
+<!-- 音声 -->
+ <div class="rule">
+
+ <div class="rule-title">
+ 音声設定
+ </div>
+
+ <div class="row">
+
+ <label>
+ 声
+ </label>
+
+ <select id="voiceSelect">
+
+ <option>
+ 音声を読み込み中...
+ </option>
+
+ </select>
+
+ </div>
+
+ <div class="row">
+
+ <label>
+ 速さ
+ </label>
+
+ <input
+     id="rate"
+     type="range"
+     min="0.5"
+     max="1.8"
+     step="0.05"
+     value="1"
+ >
+
+ </div>
+
+ <div class="row">
+
+ <label>
+ 高さ
+ </label>
+
+ <input
+     id="pitch"
+     type="range"
+     min="0.5"
+     max="1.8"
+     step="0.05"
+     value="1"
+ >
+
+ </div>
+
+ <div class="row">
+
+ <label>
+ 音量
+ </label>
+
+ <input
+     id="volume"
+     type="range"
+     min="0"
+     max="1"
+     step="0.05"
+     value="1"
+ >
+
+ </div>
+
+ </div>
+
+
+ <!-- 誤反応防止 -->
+ <div class="rule">
+
+ <div class="rule-title">
+ 誤反応防止
+ </div>
+
+ <div class="row">
+
+ <label>
+ 表情の維持時間
+ </label>
+
+ <input
+     id="holdTime"
+     type="range"
+     min="100"
+     max="2000"
+     step="50"
+     value="400"
+ >
+
+ </div>
+
+ <div class="row">
+
+ <label>
+ 再発声まで
+ </label>
+
+ <input
+     id="cooldown"
+     type="range"
+     min="500"
+     max="5000"
+     step="100"
+     value="1800"
+ >
+
+ </div>
+
+ <p class="small">
+
+ 表情が設定した時間以上続いた場合に発声します。\
+ 同じ表情による連続発声も防止します。
+
+ </p>
+
+ </div>
+
+ </div>
+
+ </div>
+
+
+ <!-- ============================= -->
+ <!-- 数値 -->
+ <!-- ============================= -->
+
+ <div class="card" style="margin-top:20px">
+
+ <h2>
+ 表情の検出状態
+ </h2>
+
+ <div class="metric">
+
+ <label>
+ 口の開き
+ </label>
+
+ <span
+     id="mouthMetric"
+     class="value">
+ 0.00
+ </span>
+
+ </div>
+
+
+ <div class="metric">
+
+ <label>
+ 左目の開き
+ </label>
+
+ <span
+     id="leftEyeMetric"
+     class="value">
+ 0.00
+ </span>
+
+ </div>
+
+
+ <div class="metric">
+
+ <label>
+ 右目の開き
+ </label>
+
+ <span
+     id="rightEyeMetric"
+     class="value">
+ 0.00
+ </span>
+
+ </div>
+
+
+ <div class="metric">
+
+ <label>
+ 笑顔指標
+ </label>
+
+ <span
+     id="smileMetric"
+     class="value">
+ 0.00
+ </span>
+
+ </div>
+
+
+ <h2 style="margin-top:20px">
+ 動作ログ
+ </h2>
+
+ <div id="log" class="log">
+ 待機中...
+ </div>
+
+ </div>
+
+ </div>
+
+
+ <script>
+
+ /* =====================================================
+    基本設定
+ ===================================================== */
+
+ const video =
+     document.getElementById("video");
+
+ const canvas =
+     document.getElementById("canvas");
+
+ const ctx =
+     canvas.getContext("2d");
+
+ const status =
+     document.getElementById("status");
+
+ const startBtn =
+     document.getElementById("startBtn");
+
+ const stopBtn =
+     document.getElementById("stopBtn");
+
+ const testBtn =
+     document.getElementById("testBtn");
+
+
+ let camera = null;
+
+ let frameNumber = 0;
+
+ let running = false;
+
+
+ /* =====================================================
+    前回発声した時間
+ ===================================================== */
+
+ let lastSpoken = {
+
+     mouth: 0,
+
+     eye: 0,
+
+     smile: 0,
+
+     fist: 0,
+
+     openHand: 0,
+
+     test: 0
+
+ };
+
+
+ /* =====================================================
+    表情を開始した時間
+ ===================================================== */
+
+ let holdStart = {
+
+     mouth: 0,
+
+     eye: 0,
+
+     smile: 0
+
+ };
+
+
+ /* =====================================================
+    距離計算
+ ===================================================== */
+
+ function distance(a, b) {
+
+     const dx = a.x - b.x;
+
+     const dy = a.y - b.y;
+
+     const dz = (a.z || 0) - (b.z || 0);
+
+     return Math.sqrt(
+         dx * dx +
+         dy * dy +
+         dz * dz
+     );
+
+ }
+
+
+ /* =====================================================
+    目のランドマーク
+
+    左目
+ ===================================================== */
+
+ const LEFT_EYE = [
+
+     33,
+     160,
+     158,
+     133,
+     153,
+     144
+
+ ];
+
+
+ /* =====================================================
+    右目
+ ===================================================== */
+
+ const RIGHT_EYE = [
+
+     362,
+     385,
+     387,
+     263,
+     373,
+     380
+
+ ];
+
+
+ /* =====================================================
+    目の開き具合
+
+    上下の距離
+    ÷
+    左右の距離
+ ===================================================== */
+
+ function eyeAspect(landmarks, ids) {
+
+     const vertical1 =
+         distance(
+             landmarks[ids[1]],
+             landmarks[ids[5]]
+         );
+
+     const vertical2 =
+         distance(
+             landmarks[ids[2]],
+             landmarks[ids[4]]
+         );
+
+     const vertical =
+         (vertical1 + vertical2) / 2;
+
+     const horizontal =
+         distance(
+             landmarks[ids[0]],
+             landmarks[ids[3]]
+         );
+
+     if(horizontal === 0) {
+         return 0;
+     }
+
+     return vertical / horizontal;
+
+ }
+
+
+ /* =====================================================
+    口の開き
+
+    13 = 上唇付近
+    14 = 下唇付近
+
+    61 = 左口角
+    291 = 右口角
+ ===================================================== */
+
+ function getMouthOpen(landmarks) {
+
+     const vertical =
+         distance(
+             landmarks[13],
+             landmarks[14]
+         );
+
+     const horizontal =
+         distance(
+             landmarks[61],
+             landmarks[291]
+         );
+
+     if(horizontal === 0) {
+         return 0;
+     }
+
+     return vertical / horizontal;
+
+ }
+
+
+ /* =====================================================
+    笑顔指標
+
+    口の横幅
+    ÷
+    鼻から口までの距離
+
+    ※感情認識ではなく、
+      顔の形状変化を利用した簡易判定
+ ===================================================== */
+
+ function getSmileScore(landmarks) {
+
+     const mouthWidth =
+         distance(
+             landmarks[61],
+             landmarks[291]
+         );
+
+
+     const mouthCenter = {
+
+         x:
+             (
+                 landmarks[13].x +
+                 landmarks[14].x
+             ) / 2,
+
+         y:
+             (
+                 landmarks[13].y +
+                 landmarks[14].y
+             ) / 2,
+
+         z:
+             (
+                 (landmarks[13].z || 0) +
+                 (landmarks[14].z || 0)
+             ) / 2
+
+     };
+
+
+     const verticalDistance =
+         distance(
+             landmarks[1],
+             mouthCenter
+         );
+
+
+     if(verticalDistance === 0) {
+         return 0;
+     }
+
+     return mouthWidth / verticalDistance;
+
+ }
+
+
+ /* =====================================================
+    音声
+ ===================================================== */
+
+ function speak(text, type) {
+
+     text = text.trim();
+
+     if(!text) {
+         return;
+     }
+
+
+     const now =
+         performance.now();
+
+
+     const cooldown =
+         Number(
+             document.getElementById(
+                 "cooldown"
+             ).value
+         );
+
+
+     if(
+         now - lastSpoken[type]
+         <
+         cooldown
+     ) {
+
+         return;
+
+     }
+
+
+     lastSpoken[type] = now;
+
+
+     speechSynthesis.cancel();
+
+
+     const utterance =
+         new SpeechSynthesisUtterance(
+             text
+         );
+
+
+     utterance.lang = "ja-JP";
+
+
+     utterance.rate =
+         Number(
+             document.getElementById(
+                 "rate"
+             ).value
+         );
+
+
+     utterance.pitch =
+         Number(
+             document.getElementById(
+                 "pitch"
+             ).value
+         );
+
+
+     utterance.volume =
+         Number(
+             document.getElementById(
+                 "volume"
+             ).value
+         );
+
+
+     /* 選択した声 */
+
+     const selectedVoice =
+         document.getElementById(
+             "voiceSelect"
+         ).value;
+
+
+     const voices =
+         speechSynthesis.getVoices();
+
+
+     const voice =
+         voices.find(
+             v =>
+                 v.voiceURI ===
+                 selectedVoice
+         );
+
+
+     if(voice) {
+
+         utterance.voice = voice;
+
+     }
+
+
+     speechSynthesis.speak(
+         utterance
+     );
+
+
+     addLog(
+         "" +
+         type +
+         " → 「" +
+         text +
+         "」"
+     );
+
+ }
+
+
+ /* =====================================================
+    ログ
+ ===================================================== */
+
+ function addLog(text) {
+
+     const log =
+         document.getElementById(
+             "log"
+         );
+
+
+     const time =
+         new Date()
+         .toLocaleTimeString();
+
+
+     log.textContent =
+         "[" +
+         time +
+         "] " +
+         text +
+         "\n" +
+         log.textContent;
+
+ }
+
+
+ /* =====================================================
+    表情判定
+ ===================================================== */
+
+ function processTrigger(
+     type,
+     active,
+     text
+ ) {
+
+     const now =
+         performance.now();
+
+
+     const holdTime =
+         Number(
+             document.getElementById(
+                 "holdTime"
+             ).value
+         );
+
+
+     if(active) {
+
+         if(
+             holdStart[type] === 0
+         ) {
+
+             holdStart[type] =
+                 now;
+
+         }
+
+
+         if(
+             now -
+             holdStart[type]
+             >=
+             holdTime
+         ) {
+
+             speak(
+                 text,
+                 type
+             );
+
+
+             /*
+              * 表情を維持している間は
+              * 何度も発声しない
+              */
+
+             holdStart[type] =
+                 now + 1000000;
+
+         }
+
+     } else {
+
+         holdStart[type] = 0;
+
+     }
+
+ }
+
+
+ /* =====================================================
+    MediaPipe Face Mesh
+ ===================================================== */
+
+ 
+let latestHandLandmarks = [];
+let previousHandState = "none";
+let handHoldStart = {
+  fist: 0,
+  open: 0
+};
+
+const hands = new Hands({
+  locateFile: function(file) {
+    return "https://cdn.jsdelivr.net/npm/@mediapipe/hands/" + file;
+  }
+});
+
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 0,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+function getHandOpenScore(lm) {
+  // 5本の指が伸びている割合を0〜1で計算
+  // 0に近い＝握っている、1に近い＝大きく開いている
+  const fingers = [
+    [4, 3, 2],   // 親指
+    [8, 6, 5],   // 人差し指
+    [12, 10, 9], // 中指
+    [16, 14, 13],// 薬指
+    [20, 18, 17] // 小指
+  ];
+
+  let extended = 0;
+
+  for (const [tip, pip, mcp] of fingers) {
+    const wrist = lm[0];
+    const tipDist = distance(lm[tip], wrist);
+    const pipDist = distance(lm[pip], wrist);
+    const mcpDist = distance(lm[mcp], wrist);
+
+    // 指先が関節より十分に手首から離れていれば「伸びている」
+    if (tipDist > pipDist * 1.12 && tipDist > mcpDist * 1.25) {
+      extended++;
+    }
+  }
+
+  return extended / 5;
+}
+
+function resetHandTrigger() {
+  handHoldStart.fist = 0;
+  handHoldStart.open = 0;
+  previousHandState = "none";
+}
+
+function processHandTrigger(type, active, text) {
+  const now = performance.now();
+  const holdTime = Number(document.getElementById("holdTime").value);
+
+  if (!active) {
+    handHoldStart[type] = 0;
+    return;
+  }
+
+  if (handHoldStart[type] === 0) {
+    handHoldStart[type] = now;
+  }
+
+  if (now - handHoldStart[type] >= holdTime) {
+    speak(text, type === "fist" ? "fist" : "openHand");
+    handHoldStart[type] = now + 1000000;
+  }
+}
+
+hands.onResults(function(results) {
+  latestHandLandmarks = results.multiHandLandmarks || [];
+
+  const metric = document.getElementById("handMetric");
+  const value = document.getElementById("handValue");
+
+  if (metric) metric.textContent = String(latestHandLandmarks.length);
+
+  if (!latestHandLandmarks.length) {
+    if (value) value.textContent = "0.00";
+    resetHandTrigger();
+    return;
+  }
+
+  // 複数の手がある場合は、最も「開き」が明確な手を使用
+  let bestScore = 0;
+  for (const lm of latestHandLandmarks) {
+    bestScore = Math.max(bestScore, getHandOpenScore(lm));
+  }
+
+  if (value) value.textContent = bestScore.toFixed(2);
+
+  const fistThreshold = Number(
+    document.getElementById("fistThreshold").value
+  );
+  const openHandThreshold = Number(
+    document.getElementById("openHandThreshold").value
+  );
+
+  // 握り判定値は「1 - 開き具合」
+  const fistScore = 1 - bestScore;
+
+  const fistActive = fistScore >= fistThreshold;
+  const openActive = bestScore >= openHandThreshold;
+
+  // 両方の条件が成立しないよう、しきい値の高い方を優先
+  if (fistActive && !openActive) {
+    processHandTrigger(
+      "fist",
+      true,
+      document.getElementById("fistText").value
+    );
+    handHoldStart.open = 0;
+  } else if (openActive && !fistActive) {
+    processHandTrigger(
+      "open",
+      true,
+      document.getElementById("openHandText").value
+    );
+    handHoldStart.fist = 0;
+  } else {
+    handHoldStart.fist = 0;
+    handHoldStart.open = 0;
+  }
+});
+
+function drawHands() {
+  for (const landmarks of latestHandLandmarks) {
+    drawConnectors(
+      ctx,
+      landmarks,
+      HAND_CONNECTIONS,
+      { color: "#00BFFF", lineWidth: 3 }
+    );
+    drawLandmarks(
+      ctx,
+      landmarks,
+      { color: "#FFFF00", lineWidth: 1, radius: 3 }
+    );
+  }
+}
+
+async function loadCameraDevices() {
+  const select = document.getElementById("cameraSelect");
+  if (!select || !navigator.mediaDevices?.enumerateDevices) return;
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    cameraDevices = devices.filter(d => d.kind === "videoinput");
+
+    select.innerHTML = "";
+
+    if (!cameraDevices.length) {
+      const option = document.createElement("option");
+      option.textContent = "Webカメラが見つかりません";
+      select.appendChild(option);
+      return;
+    }
+
+    cameraDevices.forEach((device, index) => {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || ("Webカメラ " + (index + 1));
+      select.appendChild(option);
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+let cameraDevices = [];
+
+const faceMesh =
+     new FaceMesh({
+
+         locateFile: function(file) {
+
+             return (
+                 "https://cdn.jsdelivr.net/npm/" +
+                 "@mediapipe/face_mesh/" +
+                 file
+             );
+
+         }
+
+     });
+
+
+ /* =====================================================
+    MediaPipe設定
+ ===================================================== */
+
+ faceMesh.setOptions({
+
+     maxNumFaces: 1,
+
+     /*
+      * refineLandmarksをtrueにすると
+      * 目や口周辺をより細かく扱えます
+      */
+
+     refineLandmarks: true,
+
+     minDetectionConfidence: 0.5,
+
+     minTrackingConfidence: 0.5
+
+ });
+
+
+ /* =====================================================
+    Face Mesh 結果
+ ===================================================== */
+
+ faceMesh.onResults(function(results) {
+
+
+     if(
+         !canvas.width ||
+         canvas.width !==
+         video.videoWidth
+     ) {
+
+         canvas.width =
+             video.videoWidth ||
+             640;
+
+         canvas.height =
+             video.videoHeight ||
+             480;
+
+     }
+
+
+     ctx.save();
+
+
+     ctx.clearRect(
+         0,
+         0,
+         canvas.width,
+         canvas.height
+     );
+
+
+     /*
+      * カメラ画像
+      */
+
+     ctx.drawImage(
+         results.image,
+         0,
+         0,
+         canvas.width,
+         canvas.height
+     );
+
+
+     /*
+      * 顔を検出
+      */
+
+     if(
+         results.multiFaceLandmarks &&
+         results.multiFaceLandmarks.length
+     ) {
+
+
+         const landmarks =
+             results.multiFaceLandmarks[0];
+
+
+         /*
+          * 468個のランドマークを描画
+          */
+
+         drawConnectors(
+             ctx,
+             landmarks,
+             FACEMESH_TESSELATION,
+             {
+                 color: "#00FF00",
+                 lineWidth: 0.5
+             }
+         );
+
+
+         drawLandmarks(
+             ctx,
+             landmarks,
+             {
+                 color: "#FF0000",
+                 lineWidth: 0.5,
+                 radius: 1
+             }
+         );
+
+
+         /* ==========================
+            数値計算
+         ========================== */
+
+         const mouth =
+             getMouthOpen(
+                 landmarks
+             );
+
+
+         const leftEye =
+             eyeAspect(
+                 landmarks,
+                 LEFT_EYE
+             );
+
+
+         const rightEye =
+             eyeAspect(
+                 landmarks,
+                 RIGHT_EYE
+             );
+
+
+         const smile =
+             getSmileScore(
+                 landmarks
+             );
+
+
+         /* ==========================
+            数値表示
+         ========================== */
+
+         document.getElementById(
+             "mouthMetric"
+         ).textContent =
+             mouth.toFixed(2);
+
+
+         document.getElementById(
+             "leftEyeMetric"
+         ).textContent =
+             leftEye.toFixed(2);
+
+
+         document.getElementById(
+             "rightEyeMetric"
+         ).textContent =
+             rightEye.toFixed(2);
+
+
+         document.getElementById(
+             "smileMetric"
+         ).textContent =
+             smile.toFixed(2);
+
+
+         /* ==========================
+            しきい値
+         ========================== */
+
+         const mouthThreshold =
+             Number(
+                 document.getElementById(
+                     "mouthThreshold"
+                 ).value
+             );
+
+
+         const eyeThreshold =
+             Number(
+                 document.getElementById(
+                     "eyeThreshold"
+                 ).value
+             );
+
+
+         const smileThreshold =
+             Number(
+                 document.getElementById(
+                     "smileThreshold"
+                 ).value
+             );
+
+
+         /* ==========================
+            表情判定
+         ========================== */
+
+         const mouthActive =
+             mouth >=
+             mouthThreshold;
+
+
+         const eyesClosed =
+             leftEye <
+             eyeThreshold &&
+             rightEye <
+             eyeThreshold;
+
+
+         /*
+          * 口を大きく開けている状態を
+          * 笑顔と誤判定しないようにする
+          */
+
+         const smileActive =
+             smile >=
+             smileThreshold &&
+             !mouthActive &&
+             !eyesClosed;
+
+
+         /* ==========================
+            発声
+         ========================== */
+
+         processTrigger(
+
+             "mouth",
+
+             mouthActive,
+
+             document.getElementById(
+                 "mouthText"
+             ).value
+
+         );
+
+
+         processTrigger(
+
+             "eye",
+
+             eyesClosed,
+
+             document.getElementById(
+                 "eyeText"
+             ).value
+
+         );
+
+
+         processTrigger(
+
+             "smile",
+
+             smileActive,
+
+             document.getElementById(
+                 "smileText"
+             ).value
+
+         );
+
+
+         /* ==========================
+            状態表示
+         ========================== */
+
+         status.textContent =
+             "顔を検出中　｜　" +
+
+             "口：" +
+             (
+                 mouthActive
+                 ? "開"
+                 : "閉"
+             ) +
+
+             "　｜　目：" +
+
+             (
+                 eyesClosed
+                 ? "閉"
+                 : "開"
+             ) +
+
+             "　｜　笑顔：" +
+
+             (
+                 smileActive
+                 ? "ON"
+                 : "OFF"
+             );
+
+
+         status.className =
+             "status ok";
+
+
+     } else {
+
+
+         status.textContent =
+             "顔を検出できていません";
+
+
+         status.className =
+             "status";
+
+     }
+
+
+     drawHands();
+
+     ctx.restore();
+
+ });
+
+
+ /* =====================================================
+    音声一覧
+ ===================================================== */
+
+ function loadVoices() {
+
+     const select =
+         document.getElementById(
+             "voiceSelect"
+         );
+
+
+     const voices =
+         speechSynthesis.getVoices();
+
+
+     select.innerHTML = "";
+
+
+     /*
+      * 日本語音声を優先
+      */
+
+     const japaneseVoices =
+         voices.filter(
+             voice =>
+                 voice.lang &&
+                 voice.lang
+                     .toLowerCase()
+                     .startsWith("ja")
+         );
+
+
+     const list =
+         japaneseVoices.length
+         ? japaneseVoices
+         : voices;
+
+
+     list.forEach(
+         function(voice) {
+
+
+             const option =
+                 document.createElement(
+                     "option"
+                 );
+
+
+             option.value =
+                 voice.voiceURI;
+
+
+             option.textContent =
+                 voice.name +
+                 " (" +
+                 voice.lang +
+                 ")";
+
+
+             select.appendChild(
+                 option
+             );
+
+         }
+     );
+
+
+     if(!list.length) {
+
+         const option =
+             document.createElement(
+                 "option"
+             );
+
+
+         option.textContent =
+             "ブラウザの音声を使用";
+
+
+         select.appendChild(
+             option
+         );
+
+     }
+
+ }
+
+
+ /*
+  * Edge / Chromeでは
+  * 音声一覧が後から読み込まれる場合があります。
+  */
+
+ speechSynthesis.onvoiceschanged =
+     loadVoices;
+
+ loadVoices();
+
+
+ /* =====================================================
+    スライダー表示
+ ===================================================== */
+
+ document.getElementById(
+     "mouthThreshold"
+ ).addEventListener(
+     "input",
+     function() {
+
+         document.getElementById(
+             "mouthThresholdValue"
+         ).textContent =
+             this.value;
+
+     }
+ );
+
+
+ document.getElementById(
+     "eyeThreshold"
+ ).addEventListener(
+     "input",
+     function() {
+
+         document.getElementById(
+             "eyeThresholdValue"
+         ).textContent =
+             this.value;
+
+     }
+ );
+
+
+ document.getElementById(
+     "smileThreshold"
+ ).addEventListener(
+     "input",
+     function() {
+
+         document.getElementById(
+             "smileThresholdValue"
+         ).textContent =
+             this.value;
+
+     }
+ );
+
+
+
+
+ document.getElementById("fistThreshold").addEventListener(
+   "input",
+   function() {
+     document.getElementById("fistThresholdValue").textContent = this.value;
+   }
+ );
+
+ document.getElementById("openHandThreshold").addEventListener(
+   "input",
+   function() {
+     document.getElementById("openHandThresholdValue").textContent = this.value;
+   }
+ );
+
+ /* =====================================================
+    カメラ開始
+ ===================================================== */
+
+ startBtn.addEventListener(
+     "click",
+     async function() {
+
+         try {
+
+
+             /*
+              * カメラ許可を取得
+              */
+
+             const stream =
+                 await navigator
+                 .mediaDevices
+                 .getUserMedia({
+                     video: (document.getElementById("cameraSelect")?.value)
+                       ? { deviceId: { exact: document.getElementById("cameraSelect").value } }
+                       : true,
+                     audio: false
+                 });
+
+
+             video.srcObject =
+                 stream;
+
+
+             await video.play();
+
+             await loadCameraDevices();
+
+
+             running = true;
+
+
+             startBtn.disabled =
+                 true;
+
+
+             stopBtn.disabled =
+                 false;
+
+
+             status.textContent =
+                 "カメラを起動しています...";
+
+
+             addLog(
+                 "カメラを開始しました"
+             );
+
+
+             /*
+              * MediaPipe Camera
+              */
+
+             camera =
+                 new Camera(
+
+                     video,
+
+                     {
+
+                         onFrame: async function() {
+                             if (running) {
+                                 frameNumber++;
+
+                                 // 顔と手を交互に処理して映像停止を防ぐ
+                                 if (frameNumber % 2 === 0) {
+                                     await faceMesh.send({ image: video });
+                                 } else {
+                                     await hands.send({ image: video });
+                                 }
+                             }
+                         },
+
+                         width: 640,
+
+                         height: 480
+
+                     }
+
+                 );
+
+
+             camera.start();
+
+
+         }
+
+         catch(error) {
+
+
+             console.error(
+                 error
+             );
+
+
+             status.textContent =
+                 "カメラを起動できませんでした。ブラウザのカメラ許可を確認してください。";
+
+
+             addLog(
+                 "ERROR: " +
+                 error.message
+             );
+
+         }
+
+     }
+ );
+
+
+ /* =====================================================
+    カメラ停止
+ ===================================================== */
+
+ stopBtn.addEventListener(
+     "click",
+     function() {
+
+
+         running = false;
+
+
+         if(camera) {
+
+             try {
+
+                 camera.stop();
+
+             }
+
+             catch(e) {}
+
+             camera = null;
+
+         }
+
+
+         if(video.srcObject) {
+
+             video.srcObject
+                 .getTracks()
+                 .forEach(
+                     track =>
+                         track.stop()
+                 );
+
+         }
+
+
+         video.srcObject =
+             null;
+
+
+         latestHandLandmarks = [];
+         resetHandTrigger();
+         const hv = document.getElementById("handValue");
+         const hm = document.getElementById("handMetric");
+         if (hv) hv.textContent = "0.000";
+         if (hm) hm.textContent = "0";
+
+
+         speechSynthesis.cancel();
+
+
+         startBtn.disabled =
+             false;
+
+
+         stopBtn.disabled =
+             true;
+
+
+         status.textContent =
+             "停止しました";
+
+
+         status.className =
+             "status";
+
+
+         addLog(
+             "カメラを停止しました"
+         );
+
+     }
+ );
+
+
+ /* =====================================================
+    音声テスト
+ ===================================================== */
+
+ testBtn.addEventListener(
+     "click",
+     function() {
+
+
+         const text =
+             document.getElementById(
+                 "mouthText"
+             ).value;
+
+
+         if(!text.trim()) {
+
+             alert(
+                 "読み上げる文字を入力してください。"
+             );
+
+             return;
+
+         }
+
+
+         /*
+          * テストではcooldownを無視
+          */
+
+         speechSynthesis.cancel();
+
+
+         const utterance =
+             new SpeechSynthesisUtterance(
+                 text
+             );
+
+
+         utterance.lang =
+             "ja-JP";
+
+
+         utterance.rate =
+             Number(
+                 document.getElementById(
+                     "rate"
+                 ).value
+             );
+
+
+         utterance.pitch =
+             Number(
+                 document.getElementById(
+                     "pitch"
+                 ).value
+             );
+
+
+         utterance.volume =
+             Number(
+                 document.getElementById(
+                     "volume"
+                 ).value
+             );
+
+
+         const selectedVoice =
+             document.getElementById(
+                 "voiceSelect"
+             ).value;
+
+
+         const voices =
+             speechSynthesis.getVoices();
+
+
+         const voice =
+             voices.find(
+                 v =>
+                     v.voiceURI ===
+                     selectedVoice
+             );
+
+
+         if(voice) {
+
+             utterance.voice =
+                 voice;
+
+         }
+
+
+         speechSynthesis.speak(
+             utterance
+         );
+
+
+         addLog(
+             "テスト → 「" +
+             text +
+             "」"
+         );
+
+     }
+ );
+
+ </script>
+
+ </body>
+ </html>
