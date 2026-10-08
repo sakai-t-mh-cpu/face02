@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
  <html lang="ja">
  <head>
  <meta charset="UTF-8">
@@ -472,7 +472,7 @@
      type="range"
      min="0.00"
      max="1.00"
-     step="0.05"
+     step="0.01"
      value="0.60"
  >
 
@@ -518,7 +518,7 @@
      type="range"
      min="0.00"
      max="1.00"
-     step="0.05"
+     step="0.01"
      value="0.60"
  >
 
@@ -1276,32 +1276,52 @@ hands.setOptions({
   minTrackingConfidence: 0.45
 });
 
+function angle3(a, b, c) {
+  const ab = {x:a.x-b.x, y:a.y-b.y, z:(a.z||0)-(b.z||0)};
+  const cb = {x:c.x-b.x, y:c.y-b.y, z:(c.z||0)-(b.z||0)};
+  const dot = ab.x*cb.x + ab.y*cb.y + ab.z*cb.z;
+  const mag1 = Math.hypot(ab.x, ab.y, ab.z);
+  const mag2 = Math.hypot(cb.x, cb.y, cb.z);
+  if (!mag1 || !mag2) return 0;
+  const cos = Math.max(-1, Math.min(1, dot/(mag1*mag2)));
+  return Math.acos(cos) * 180 / Math.PI;
+}
+
+function fingerExtensionScore(lm, mcp, pip, dip, tip) {
+  const wrist = lm[0];
+  const mcpDist = distance(lm[mcp], wrist);
+  const tipDist = distance(lm[tip], wrist);
+  const angle = angle3(lm[mcp], lm[pip], lm[dip]) + angle3(lm[pip], lm[dip], lm[tip]);
+
+  // 距離と関節の伸びを連続値で評価（0〜1）
+  const distanceScore = Math.max(0, Math.min(1, (tipDist / Math.max(mcpDist, 0.0001) - 1.05) / 0.75));
+  const angleScore = Math.max(0, Math.min(1, (angle - 250) / 100));
+  return distanceScore * 0.45 + angleScore * 0.55;
+}
+
+function thumbExtensionScore(lm) {
+  const wrist = lm[0];
+  const tipDist = distance(lm[4], wrist);
+  const mcpDist = distance(lm[2], wrist);
+  const angle = angle3(lm[2], lm[3], lm[4]);
+  const distanceScore = Math.max(0, Math.min(1, (tipDist / Math.max(mcpDist, 0.0001) - 1.0) / 0.8));
+  const angleScore = Math.max(0, Math.min(1, (angle - 135) / 45));
+  return distanceScore * 0.45 + angleScore * 0.55;
+}
+
 function getHandOpenScore(lm) {
-  // 5本の指が伸びている割合を0〜1で計算
-  // 0に近い＝握っている、1に近い＝大きく開いている
-  const fingers = [
-    [4, 3, 2],   // 親指
-    [8, 6, 5],   // 人差し指
-    [12, 10, 9], // 中指
-    [16, 14, 13],// 薬指
-    [20, 18, 17] // 小指
+  // 0.00〜1.00の連続値で手の開き具合を判定
+  // 0.00＝強く握った状態、1.00＝大きく開いた状態
+  const scores = [
+    thumbExtensionScore(lm),
+    fingerExtensionScore(lm, 5, 6, 7, 8),
+    fingerExtensionScore(lm, 9, 10, 11, 12),
+    fingerExtensionScore(lm, 13, 14, 15, 16),
+    fingerExtensionScore(lm, 17, 18, 19, 20)
   ];
 
-  let extended = 0;
-
-  for (const [tip, pip, mcp] of fingers) {
-    const wrist = lm[0];
-    const tipDist = distance(lm[tip], wrist);
-    const pipDist = distance(lm[pip], wrist);
-    const mcpDist = distance(lm[mcp], wrist);
-
-    // 指先が関節より十分に手首から離れていれば「伸びている」
-    if (tipDist > pipDist * 1.12 && tipDist > mcpDist * 1.25) {
-      extended++;
-    }
-  }
-
-  return extended / 5;
+  // 手全体の平均。1本の指だけの誤検出で値が大きく変わりにくい。
+  return scores.reduce((sum, value) => sum + value, 0) / scores.length;
 }
 
 function resetHandTrigger() {
@@ -1349,7 +1369,7 @@ hands.onResults(function(results) {
     bestScore = Math.max(bestScore, getHandOpenScore(lm));
   }
 
-  if (value) value.textContent = bestScore.toFixed(2);
+  if (value) value.textContent = bestScore.toFixed(3);
 
   const fistThreshold = Number(
     document.getElementById("fistThreshold").value
