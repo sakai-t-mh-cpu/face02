@@ -440,126 +440,69 @@
  </div>
 
 
- <!-- 手を握ったら -->
+ <!-- 左手 -->
  <div class="rule">
+ <div class="rule-title">左手</div>
 
- <div class="rule-title">
- 手を握ったら
+ <div class="row">
+ <label>握ったときの文字</label>
+ <input id="leftFistText" type="text" value="">
+ </div>
+ <div class="metric">
+ <label>握る判定しきい値</label>
+ <input id="leftFistThreshold" type="range" min="0.00" max="1.00" step="0.01" value="0.60">
+ <span id="leftFistThresholdValue" class="value">0.60</span>
  </div>
 
  <div class="row">
-
- <label>
- 読み上げる文字
- </label>
-
- <input
-     id="fistText"
-     type="text"
-     value="　　"
- >
-
+ <label>広げたときの文字</label>
+ <input id="leftOpenText" type="text" value="はい">
+ </div>
+ <div class="metric">
+ <label>開く判定しきい値</label>
+ <input id="leftOpenThreshold" type="range" min="0.00" max="1.00" step="0.01" value="0.60">
+ <span id="leftOpenThresholdValue" class="value">0.60</span>
  </div>
 
  <div class="metric">
-
- <label>
- 判定しきい値
- </label>
-
- <input
-     id="fistThreshold"
-     type="range"
-     min="0.00"
-     max="1.00"
-     step="0.01"
-     value="0.60"
- >
-
- <span
-     id="fistThresholdValue"
-     class="value">
- 0.60
- </span>
-
+ <label>左手の判定値（開き具合）</label>
+ <span id="leftHandValue" class="value">0.000</span>
+ </div>
  </div>
 
- </div>
-
- <!-- 手を広げたら -->
+ <!-- 右手 -->
  <div class="rule">
+ <div class="rule-title">右手</div>
 
- <div class="rule-title">
- 手を広げたら
+ <div class="row">
+ <label>握ったときの文字</label>
+ <input id="rightFistText" type="text" value="">
+ </div>
+ <div class="metric">
+ <label>握る判定しきい値</label>
+ <input id="rightFistThreshold" type="range" min="0.00" max="1.00" step="0.01" value="0.60">
+ <span id="rightFistThresholdValue" class="value">0.60</span>
  </div>
 
  <div class="row">
-
- <label>
- 読み上げる文字
- </label>
-
- <input
-     id="openHandText"
-     type="text"
-     value="はい"
- >
-
+ <label>広げたときの文字</label>
+ <input id="rightOpenText" type="text" value="はい">
+ </div>
+ <div class="metric">
+ <label>開く判定しきい値</label>
+ <input id="rightOpenThreshold" type="range" min="0.00" max="1.00" step="0.01" value="0.60">
+ <span id="rightOpenThresholdValue" class="value">0.60</span>
  </div>
 
  <div class="metric">
-
- <label>
- 判定しきい値
- </label>
-
- <input
-     id="openHandThreshold"
-     type="range"
-     min="0.00"
-     max="1.00"
-     step="0.01"
-     value="0.60"
- >
-
- <span
-     id="openHandThresholdValue"
-     class="value">
- 0.60
- </span>
-
+ <label>右手の判定値（開き具合）</label>
+ <span id="rightHandValue" class="value">0.000</span>
  </div>
-
- </div>
-
-
- <!-- 手の判定値 -->
- <div class="metric">
-
- <label>
- 手の判定値（開き具合）
- </label>
-
- <span
-     id="handValue"
-     class="value">
- 0.00
- </span>
-
  </div>
 
  <div class="metric">
-
- <label>
- 手の検知
- </label>
-
- <span
-     id="handMetric"
-     class="value">
- 0
- </span>
-
+ <label>手の検知数</label>
+ <span id="handMetric" class="value">0</span>
  </div>
 
 
@@ -1257,10 +1200,9 @@
 
  
 let latestHandLandmarks = [];
-let previousHandState = "none";
-let handHoldStart = {
-  fist: 0,
-  open: 0
+let handStates = {
+  left: { fist: 0, open: 0 },
+  right: { fist: 0, open: 0 }
 };
 
 const hands = new Hands({
@@ -1270,20 +1212,24 @@ const hands = new Hands({
 });
 
 hands.setOptions({
-  maxNumHands: 1,
+  maxNumHands: 2,
   modelComplexity: 0,
   minDetectionConfidence: 0.45,
   minTrackingConfidence: 0.45
 });
 
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
+
 function angle3(a, b, c) {
   const ab = {x:a.x-b.x, y:a.y-b.y, z:(a.z||0)-(b.z||0)};
   const cb = {x:c.x-b.x, y:c.y-b.y, z:(c.z||0)-(b.z||0)};
   const dot = ab.x*cb.x + ab.y*cb.y + ab.z*cb.z;
-  const mag1 = Math.hypot(ab.x, ab.y, ab.z);
-  const mag2 = Math.hypot(cb.x, cb.y, cb.z);
-  if (!mag1 || !mag2) return 0;
-  const cos = Math.max(-1, Math.min(1, dot/(mag1*mag2)));
+  const abLen = Math.hypot(ab.x,ab.y,ab.z);
+  const cbLen = Math.hypot(cb.x,cb.y,cb.z);
+  if (!abLen || !cbLen) return 0;
+  const cos = Math.max(-1, Math.min(1, dot/(abLen*cbLen)));
   return Math.acos(cos) * 180 / Math.PI;
 }
 
@@ -1291,27 +1237,30 @@ function fingerExtensionScore(lm, mcp, pip, dip, tip) {
   const wrist = lm[0];
   const mcpDist = distance(lm[mcp], wrist);
   const tipDist = distance(lm[tip], wrist);
-  const angle = angle3(lm[mcp], lm[pip], lm[dip]) + angle3(lm[pip], lm[dip], lm[tip]);
+  if (!mcpDist) return 0;
 
-  // 距離と関節の伸びを連続値で評価（0〜1）
-  const distanceScore = Math.max(0, Math.min(1, (tipDist / Math.max(mcpDist, 0.0001) - 1.05) / 0.75));
-  const angleScore = Math.max(0, Math.min(1, (angle - 250) / 100));
-  return distanceScore * 0.45 + angleScore * 0.55;
+  const pipAngle = angle3(lm[mcp], lm[pip], lm[dip]);
+  const dipAngle = angle3(lm[pip], lm[dip], lm[tip]);
+  const angleScore = clamp01(((pipAngle + dipAngle) - 220) / 130);
+  const distanceScore = clamp01((tipDist / mcpDist - 1.05) / 0.75);
+
+  return angleScore * 0.60 + distanceScore * 0.40;
 }
 
 function thumbExtensionScore(lm) {
   const wrist = lm[0];
-  const tipDist = distance(lm[4], wrist);
   const mcpDist = distance(lm[2], wrist);
+  const tipDist = distance(lm[4], wrist);
+  if (!mcpDist) return 0;
+
   const angle = angle3(lm[2], lm[3], lm[4]);
-  const distanceScore = Math.max(0, Math.min(1, (tipDist / Math.max(mcpDist, 0.0001) - 1.0) / 0.8));
-  const angleScore = Math.max(0, Math.min(1, (angle - 135) / 45));
-  return distanceScore * 0.45 + angleScore * 0.55;
+  const angleScore = clamp01((angle - 125) / 60);
+  const distanceScore = clamp01((tipDist / mcpDist - 1.0) / 0.8);
+
+  return angleScore * 0.60 + distanceScore * 0.40;
 }
 
 function getHandOpenScore(lm) {
-  // 0.00〜1.00の連続値で手の開き具合を判定
-  // 0.00＝強く握った状態、1.00＝大きく開いた状態
   const scores = [
     thumbExtensionScore(lm),
     fingerExtensionScore(lm, 5, 6, 7, 8),
@@ -1319,90 +1268,87 @@ function getHandOpenScore(lm) {
     fingerExtensionScore(lm, 13, 14, 15, 16),
     fingerExtensionScore(lm, 17, 18, 19, 20)
   ];
-
-  // 手全体の平均。1本の指だけの誤検出で値が大きく変わりにくい。
-  return scores.reduce((sum, value) => sum + value, 0) / scores.length;
+  return scores.reduce((sum, v) => sum + v, 0) / scores.length;
 }
 
-function resetHandTrigger() {
-  handHoldStart.fist = 0;
-  handHoldStart.open = 0;
-  previousHandState = "none";
+function resetHandTriggers(side) {
+  handStates[side].fist = 0;
+  handStates[side].open = 0;
 }
 
-function processHandTrigger(type, active, text) {
+function processHandTrigger(side, type, active, text) {
   const now = performance.now();
   const holdTime = Number(document.getElementById("holdTime").value);
+  const state = handStates[side];
 
   if (!active) {
-    handHoldStart[type] = 0;
+    state[type] = 0;
     return;
   }
 
-  if (handHoldStart[type] === 0) {
-    handHoldStart[type] = now;
+  if (state[type] === 0) {
+    state[type] = now;
   }
 
-  if (now - handHoldStart[type] >= holdTime) {
-    speak(text, type === "fist" ? "fist" : "openHand");
-    handHoldStart[type] = now + 1000000;
+  if (now - state[type] >= holdTime) {
+    speak(text, side + "_" + type);
+    state[type] = now + 1000000;
   }
+}
+
+function setHandDisplay(side, score) {
+  const el = document.getElementById(side === "left" ? "leftHandValue" : "rightHandValue");
+  if (el) el.textContent = score.toFixed(3);
+}
+
+function clearHandDisplay(side) {
+  setHandDisplay(side, 0);
+  resetHandTriggers(side);
 }
 
 hands.onResults(function(results) {
   latestHandLandmarks = results.multiHandLandmarks || [];
+  const handedness = results.multiHandedness || [];
 
   const metric = document.getElementById("handMetric");
-  const value = document.getElementById("handValue");
-
   if (metric) metric.textContent = String(latestHandLandmarks.length);
 
-  if (!latestHandLandmarks.length) {
-    if (value) value.textContent = "0.00";
-    resetHandTrigger();
-    return;
+  const detected = { left: false, right: false };
+
+  for (let i = 0; i < latestHandLandmarks.length; i++) {
+    const lm = latestHandLandmarks[i];
+    const label = handedness[i]?.label || "";
+
+    // MediaPipeのhandednessは鏡像入力を前提とするため、
+    // 現在の表示（鏡像反転なし）では左右を入れ替えて表示する。
+    const side = label === "Left" ? "right" : "left";
+    const score = getHandOpenScore(lm);
+    detected[side] = true;
+    setHandDisplay(side, score);
+
+    const fistThreshold = Number(document.getElementById(side === "left" ? "leftFistThreshold" : "rightFistThreshold").value);
+    const openThreshold = Number(document.getElementById(side === "left" ? "leftOpenThreshold" : "rightOpenThreshold").value);
+
+    const fistScore = 1 - score;
+    const fistActive = fistScore >= fistThreshold;
+    const openActive = score >= openThreshold;
+
+    const fistText = document.getElementById(side === "left" ? "leftFistText" : "rightFistText").value;
+    const openText = document.getElementById(side === "left" ? "leftOpenText" : "rightOpenText").value;
+
+    if (fistActive && !openActive) {
+      processHandTrigger(side, "fist", true, fistText);
+      handStates[side].open = 0;
+    } else if (openActive && !fistActive) {
+      processHandTrigger(side, "open", true, openText);
+      handStates[side].fist = 0;
+    } else {
+      resetHandTriggers(side);
+    }
   }
 
-  // 複数の手がある場合は、最も「開き」が明確な手を使用
-  let bestScore = 0;
-  for (const lm of latestHandLandmarks) {
-    bestScore = Math.max(bestScore, getHandOpenScore(lm));
-  }
-
-  if (value) value.textContent = bestScore.toFixed(3);
-
-  const fistThreshold = Number(
-    document.getElementById("fistThreshold").value
-  );
-  const openHandThreshold = Number(
-    document.getElementById("openHandThreshold").value
-  );
-
-  // 握り判定値は「1 - 開き具合」
-  const fistScore = 1 - bestScore;
-
-  const fistActive = fistScore >= fistThreshold;
-  const openActive = bestScore >= openHandThreshold;
-
-  // 両方の条件が成立しないよう、しきい値の高い方を優先
-  if (fistActive && !openActive) {
-    processHandTrigger(
-      "fist",
-      true,
-      document.getElementById("fistText").value
-    );
-    handHoldStart.open = 0;
-  } else if (openActive && !fistActive) {
-    processHandTrigger(
-      "open",
-      true,
-      document.getElementById("openHandText").value
-    );
-    handHoldStart.fist = 0;
-  } else {
-    handHoldStart.fist = 0;
-    handHoldStart.open = 0;
-  }
+  if (!detected.left) clearHandDisplay("left");
+  if (!detected.right) clearHandDisplay("right");
 });
 
 const HAND_CONNECTIONS_FALLBACK = [
@@ -1945,19 +1891,18 @@ const faceMesh =
 
 
 
- document.getElementById("fistThreshold").addEventListener(
-   "input",
-   function() {
-     document.getElementById("fistThresholdValue").textContent = this.value;
-   }
- );
-
- document.getElementById("openHandThreshold").addEventListener(
-   "input",
-   function() {
-     document.getElementById("openHandThresholdValue").textContent = this.value;
-   }
- );
+ [
+   ["leftFistThreshold", "leftFistThresholdValue"],
+   ["leftOpenThreshold", "leftOpenThresholdValue"],
+   ["rightFistThreshold", "rightFistThresholdValue"],
+   ["rightOpenThreshold", "rightOpenThresholdValue"]
+ ].forEach(function(ids) {
+   const input = document.getElementById(ids[0]);
+   const value = document.getElementById(ids[1]);
+   input.addEventListener("input", function() {
+     value.textContent = this.value;
+   });
+ });
 
  /* =====================================================
     カメラ開始
@@ -2144,10 +2089,14 @@ const faceMesh =
 
          latestHandLandmarks = [];
          resetHandTrigger();
-         const hv = document.getElementById("handValue");
+         const lhv = document.getElementById("leftHandValue");
+         const rhv = document.getElementById("rightHandValue");
          const hm = document.getElementById("handMetric");
-         if (hv) hv.textContent = "0.000";
+         if (lhv) lhv.textContent = "0.000";
+         if (rhv) rhv.textContent = "0.000";
          if (hm) hm.textContent = "0";
+         clearHandDisplay("left");
+         clearHandDisplay("right");
 
 
          speechSynthesis.cancel();
