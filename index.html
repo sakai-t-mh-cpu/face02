@@ -812,6 +812,8 @@
  let camera = null;
 
  let frameNumber = 0;
+ let faceBusy = false;
+ let handBusy = false;
 
  let running = false;
 
@@ -1385,12 +1387,25 @@ hands.onResults(function(results) {
   }
 });
 
+const HAND_CONNECTIONS_FALLBACK = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],
+  [13,17],[17,18],[18,19],[19,20],
+  [0,17]
+];
+
 function drawHands() {
+  const connections = (typeof HAND_CONNECTIONS !== "undefined")
+    ? HAND_CONNECTIONS
+    : HAND_CONNECTIONS_FALLBACK;
+
   for (const landmarks of latestHandLandmarks) {
     drawConnectors(
       ctx,
       landmarks,
-      HAND_CONNECTIONS,
+      connections,
       { color: "#00BFFF", lineWidth: 3 }
     );
     drawLandmarks(
@@ -2000,20 +2015,39 @@ const faceMesh =
 
                      {
 
-                         onFrame: async function() {
-                             if (running) {
-                                 frameNumber++;
+                         onFrame: function() {
+                             if (!running || video.readyState < 2) return;
 
-                                 // 顔と手を交互に処理して映像停止を防ぐ
-                                 if (frameNumber % 2 === 0) {
-                                     await faceMesh.send({ image: video });
-                                 } else {
-                                     await hands.send({ image: video });
-                                 }
+                             frameNumber++;
+
+                             // 顔認識を最優先。処理中は重ねて実行しない
+                             if (!faceBusy) {
+                                 faceBusy = true;
+                                 faceMesh.send({ image: video })
+                                   .catch(function(error) {
+                                     console.error("Face Mesh error:", error);
+                                     status.textContent = "顔認識の読み込みに失敗しました";
+                                     addLog("Face Mesh ERROR: " + (error.message || error));
+                                   })
+                                   .finally(function() {
+                                     faceBusy = false;
+                                   });
+                             }
+
+                             // 手は5フレームに1回。顔認識を邪魔しない
+                             if (frameNumber % 5 === 0 && !handBusy) {
+                                 handBusy = true;
+                                 hands.send({ image: video })
+                                   .catch(function(error) {
+                                     console.error("Hands error:", error);
+                                   })
+                                   .finally(function() {
+                                     handBusy = false;
+                                   });
                              }
                          },
 
-                         width: 640,
+                         width: 640,
 
                          height: 480
 
