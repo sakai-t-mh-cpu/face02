@@ -7,13 +7,13 @@
  <title>表情と手の音声スイッチ</title>
 
  <!-- MediaPipe Face Mesh -->
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js"
          crossorigin="anonymous"></script>
 
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js"
          crossorigin="anonymous"></script>
 
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js"
          crossorigin="anonymous"></script>
 
  <style>
@@ -74,14 +74,20 @@
  }
 
  #video {
-     display: none;
+     display: block;
+     width: 100%;
+     height: 100%;
+     object-fit: cover;
+     transform: scaleX(-1);
  }
 
  #canvas {
-     width: 100%;
-     height: 100%;
-     display: block;
-     transform: scaleX(-1);
+     position: absolute;
+     inset: 0;
+     width: 100%;
+     height: 100%;
+     pointer-events: none;
+     display: block;
  }
 
  .status {
@@ -210,7 +216,7 @@
  }
 
  </style>
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
 </head>
 
  <body>
@@ -1267,7 +1273,7 @@ let handHoldStart = {
 
 const hands = new Hands({
   locateFile: function(file) {
-    return "https://cdn.jsdelivr.net/npm/@mediapipe/hands/" + file;
+    return "https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/" + file;
   }
 });
 
@@ -1550,15 +1556,7 @@ const faceMesh =
           * 468個のランドマークを描画
           */
 
-         drawConnectors(
-             ctx,
-             landmarks,
-             FACEMESH_TESSELATION,
-             {
-                 color: "#00FF00",
-                 lineWidth: 0.5
-             }
-         );
+         drawConnectors(ctx, landmarks, FACEMESH_CONTOURS, { color: "#00FF00", lineWidth: 1 });
 
 
          drawLandmarks(
@@ -1996,7 +1994,7 @@ const faceMesh =
 
 
              status.textContent =
-                 "カメラを起動しています...";
+                 "カメラ起動中（軽量モード）...";
 
 
              addLog(
@@ -2020,8 +2018,8 @@ const faceMesh =
 
                              frameNumber++;
 
-                             // 顔認識を最優先。処理中は重ねて実行しない
-                             if (!faceBusy) {
+                             // 処理負荷を下げるため、顔認識は2フレームに1回
+                             if (frameNumber % 2 === 0 && !faceBusy) {
                                  faceBusy = true;
                                  faceMesh.send({ image: video })
                                    .catch(function(error) {
@@ -2034,8 +2032,8 @@ const faceMesh =
                                    });
                              }
 
-                             // 手は5フレームに1回。顔認識を邪魔しない
-                             if (frameNumber % 5 === 0 && !handBusy) {
+                             // 手は8フレームに1回。処理中は重ねない
+                             if (frameNumber % 8 === 0 && !handBusy) {
                                  handBusy = true;
                                  hands.send({ image: video })
                                    .catch(function(error) {
