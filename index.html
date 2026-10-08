@@ -7,13 +7,13 @@
  <title>表情と手の音声スイッチ</title>
 
  <!-- MediaPipe Face Mesh -->
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js"
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
          crossorigin="anonymous"></script>
 
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js"
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
          crossorigin="anonymous"></script>
 
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js"
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"
          crossorigin="anonymous"></script>
 
  <style>
@@ -74,20 +74,19 @@
  }
 
  #video {
-     display: block;
-     width: 100%;
-     height: 100%;
-     object-fit: cover;
-     transform: scaleX(-1);
+     display: none !important;
+     position: absolute;
+     width: 1px;
+     height: 1px;
+     opacity: 0;
+     pointer-events: none;
  }
 
  #canvas {
-     position: absolute;
-     inset: 0;
-     width: 100%;
-     height: 100%;
-     pointer-events: none;
-     display: block;
+     width: 100%;
+     height: 100%;
+     display: block;
+     transform: none;
  }
 
  .status {
@@ -216,7 +215,7 @@
  }
 
  </style>
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 
  <body>
@@ -818,8 +817,9 @@
  let camera = null;
 
  let frameNumber = 0;
- let faceBusy = false;
- let handBusy = false;
+ let frameBusy = false;
+ let lastFaceTime = 0;
+ let lastHandTime = 0;
 
  let running = false;
 
@@ -1273,15 +1273,15 @@ let handHoldStart = {
 
 const hands = new Hands({
   locateFile: function(file) {
-    return "https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/" + file;
+    return "https://cdn.jsdelivr.net/npm/@mediapipe/hands/" + file;
   }
 });
 
 hands.setOptions({
-  maxNumHands: 2,
+  maxNumHands: 1,
   modelComplexity: 0,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
+  minDetectionConfidence: 0.45,
+  minTrackingConfidence: 0.45
 });
 
 function getHandOpenScore(lm) {
@@ -2013,35 +2013,40 @@ const faceMesh =
 
                      {
 
-                         onFrame: function() {
-                             if (!running || video.readyState < 2) return;
+                         onFrame: async function() {
+                             // 顔と手を同時に実行しない（iPad Safari対策）
+                             if (!running || video.readyState < 2 || frameBusy) return;
 
-                             frameNumber++;
+                             const now = performance.now();
 
-                             // 処理負荷を下げるため、顔認識は2フレームに1回
-                             if (frameNumber % 2 === 0 && !faceBusy) {
-                                 faceBusy = true;
-                                 faceMesh.send({ image: video })
-                                   .catch(function(error) {
+                             // 顔を約10fpsで処理
+                             if (now - lastFaceTime >= 100) {
+                                 frameBusy = true;
+                                 lastFaceTime = now;
+                                 try {
+                                     await faceMesh.send({ image: video });
+                                 } catch (error) {
                                      console.error("Face Mesh error:", error);
                                      status.textContent = "顔認識の読み込みに失敗しました";
                                      addLog("Face Mesh ERROR: " + (error.message || error));
-                                   })
-                                   .finally(function() {
-                                     faceBusy = false;
-                                   });
+                                 } finally {
+                                     frameBusy = false;
+                                 }
+                                 return;
                              }
 
-                             // 手は8フレームに1回。処理中は重ねない
-                             if (frameNumber % 8 === 0 && !handBusy) {
-                                 handBusy = true;
-                                 hands.send({ image: video })
-                                   .catch(function(error) {
+                             // 手を約6fpsで処理。顔処理とは重ならない。
+                             if (now - lastHandTime >= 170) {
+                                 frameBusy = true;
+                                 lastHandTime = now;
+                                 try {
+                                     await hands.send({ image: video });
+                                 } catch (error) {
                                      console.error("Hands error:", error);
-                                   })
-                                   .finally(function() {
-                                     handBusy = false;
-                                   });
+                                     addLog("Hands ERROR: " + (error.message || error));
+                                 } finally {
+                                     frameBusy = false;
+                                 }
                              }
                          },
 
